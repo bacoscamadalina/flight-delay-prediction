@@ -4,26 +4,24 @@
 
 I'm working on a machine learning model to predict whether a flight will depart at least 15 minutes late.
 
-The idea is to make the prediction **two hours before the scheduled departure**, using only information that would be available at that moment.
+The goal is to make predictions **two hours before the scheduled departure**, using only information available at that moment.
 
-I'm using historical U.S. flight data from the [Bureau of Transportation Statistics (BTS)](https://www.transtats.bts.gov/).
+I'm using historical U.S. flight data from January 2025, provided by the [Bureau of Transportation Statistics (BTS)](https://www.transtats.bts.gov/).
 
-I've been exploring the data to understand what might be related to departure delays. So far, I've looked at airports, airlines, departure times, days of the week, and flight distances.
-
-The next step is to prepare the data and start training models.
+Through this project, I want to understand the factors associated with flight delays and build a complete machine learning workflow, from data exploration to model evaluation.
 
 ## 📊 Dataset
 
 The original dataset contains **539,747 flights and 15 columns**.
 
-The target is `DEP_DEL15`:
+After excluding cancelled flights and observations with missing target values, I kept **523,435 flights**.
+
+The target variable is `DEP_DEL15`:
 
 - `0` — departure delay below 15 minutes
     
 - `1` — departure delay of 15 minutes or more
     
-
-I excluded cancelled flights and rows with missing target values, leaving **523,435 flights** for the current analysis.
 
 ### Target Distribution
 
@@ -32,268 +30,118 @@ I excluded cancelled flights and rows with missing target values, leaving **523,
 |Not delayed|428,003|81.77%|
 |Delayed|95,432|18.23%|
 
-The dataset is imbalanced, so accuracy alone won't be enough to evaluate the model.
-
-For example, predicting every flight as not delayed would give around 81.77% accuracy without correctly identifying any delayed flights.
+The dataset is imbalanced, so accuracy alone will not be enough to evaluate the model.
 
 ## 🔍 Exploratory Data Analysis
 
-### Missing Values
+I started by exploring the dataset, checking missing values, identifying potential data leakage, and analyzing the relationship between different features and departure delays.
 
-I started by checking missing values and understanding why they occur.
+### Key Findings
 
-|Column|Missing values|
+|Feature|Observation|
 |---|---|
-|`DEP_TIME`|15,886|
-|`DEP_DELAY`|15,923|
-|`DEP_DEL15`|15,923|
-|`CANCELLATION_CODE`|523,435|
+|Origin and destination|Delay rates vary across airports, but extreme values often come from small sample sizes.|
+|Departure time|The delay rate increases from 8.07% at 06:00 to 25.01% at 20:00.|
+|Distance|The relationship between distance and departure delays does not appear to be linear.|
+|Day of week|Sunday and Monday have the highest delay rates, while Wednesday has the lowest.|
+|Airline|Delay rates vary across the 14 airlines.|
+|Evening flights|13 out of 14 airlines have higher delay rates for flights scheduled after 18:00, including 18:00.|
 
-Most missing departure delay values are related to cancelled flights. I also found that `CANCELLATION_CODE` is usually missing when a flight wasn't cancelled.
-
-I decided not to fill missing target values with zero, since that would incorrectly label some flights as not delayed.
-
-### Data Leakage
-
-Since I want to predict delays two hours before departure, I need to be careful about which features I use.
-
-Some examples:
-
-|Feature|Use for prediction?|
-|---|---|
-|`ORIGIN`|Candidate|
-|`DEST`|Candidate|
-|`CRS_DEP_TIME`|Candidate|
-|`DISTANCE`|Candidate|
-|`DAY_OF_WEEK`|Candidate|
-|`OP_UNIQUE_CARRIER`|Candidate|
-|`DEP_TIME`|No|
-|`DEP_DELAY`|No|
-|`CANCELLED`|No|
-|`CANCELLATION_CODE`|No|
-|`DIVERTED`|No|
-
-Actual departure time, departure delay, and final flight status are not known at the prediction point.
-
-Using these values would introduce data leakage.
-
-### 🛫 Origin Airport
-
-I compared departure delay rates across origin airports.
-
-Some airports had very high delay rates:
-
-|Airport|Flights|Delay rate|
-|---|---|---|
-|CKB|9|77.78%|
-|HGR|19|57.89%|
-|USA|49|44.90%|
-|TOL|30|43.33%|
-|SCE|16|37.50%|
-
-Others had much lower rates:
-
-|Airport|Flights|Delay rate|
-|---|---|---|
-|PQI|31|0.00%|
-|OTH|17|0.00%|
-|EKO|31|3.23%|
-|PSG|55|3.64%|
-|OTZ|25|4.00%|
-
-One thing I noticed is that all these airports have relatively few flights in the dataset.
-
-For example, CKB has a delay rate of 77.78%, but that comes from only 9 flights.
-
-Because of this, I don't think it's reasonable to rank airports based only on these percentages without considering the number of observations.
-
-### 🕒 Scheduled Departure Time
-
-I extracted the departure hour from `CRS_DEP_TIME` to check whether delays are more common at certain times of the day.
-
-For example, `1430` becomes hour `14`.
-
-Here are some results:
-
-|Hour|Flights|Delay rate|
-|---|---|---|
-|06:00|35,288|8.07%|
-|09:00|31,417|14.46%|
-|12:00|32,072|19.62%|
-|15:00|30,865|22.15%|
-|18:00|32,518|23.16%|
-|20:00|22,380|25.01%|
-
-This was one of the more interesting patterns I found.
-
-Flights scheduled early in the morning have lower observed delay rates, while flights later in the day tend to have higher rates.
-
-At 06:00, the delay rate is around 8%, compared with 25% at 20:00.
-
-This doesn't necessarily mean that departing later causes delays. There could be other factors involved, such as previous flight delays, airport traffic, or weather.
-
-Still, I think departure hour is worth testing as a feature when I start training models.
-
-### 📏 Flight Distance
-
-I checked the distribution of flight distances to see whether longer flights tend to have more departure delays.
-
-The average distance is around **848 miles**, while the median is **715 miles**.
-
-The distribution is right-skewed, with most flights covering shorter distances and relatively few flights above 3,000 miles.
-
-I grouped the flights into four distance categories:
-
-|Distance category|Flights|Delay rate|
-|---|---|---|
-|Short|175,856|17.01%|
-|Medium|186,753|18.81%|
-|Long|128,250|19.59%|
-|Very Long|32,576|16.16%|
-
-I expected longer flights might have higher delay rates, but the results weren't that straightforward.
-
-Delay rates increase from Short to Long flights, then decrease for Very Long flights.
-
-This suggests that the relationship isn't simply linear. Other factors, such as airlines, routes, or departure times, might also play a role.
-
-For now, I'm keeping `DISTANCE` as a candidate feature.
-
-### 📅 Day of Week
-
-I also wanted to see whether delays are more common on certain days of the week.
-
-|Day|Flights|Delay rate|
-|---|---|---|
-|Monday|70,812|21.80%|
-|Tuesday|61,560|14.92%|
-|Wednesday|79,861|12.92%|
-|Thursday|89,192|16.78%|
-|Friday|88,487|18.87%|
-|Saturday|62,298|21.31%|
-|Sunday|71,225|21.84%|
-
-Thursday and Friday have the most flights, but they don't have the highest delay rates.
-
-Sunday and Monday have the highest rates, while Wednesday has the lowest.
-
-I found this interesting because it shows that having more flights doesn't automatically mean having a higher percentage of delays.
-
-One possible explanation is that flight schedules differ across the week. For example, some days might have more evening flights, which already seem to have higher delay rates.
-
-I haven't tested all these explanations yet.
-
-### ✈️ Airline Carrier
-
-Next, I looked at `OP_UNIQUE_CARRIER` to compare departure delays across airlines.
-
-The dataset contains **14 airlines**.
-
-Some results:
-
-|Airline|Flights|Delay rate|
-|---|---|---|
-|WN|102,291|17.47%|
-|G4|9,226|23.57%|
-|F9|15,134|23.20%|
-|OH|19,195|23.13%|
-|HA|6,562|11.37%|
-|YX|26,714|12.25%|
-
-WN operates the most flights, but it doesn't have the highest delay rate.
-
-G4 and F9 have higher delay rates despite operating fewer flights.
-
-I don't think these differences can be explained by the airline alone. Airlines may operate at different airports, use different schedules, or have different operational conditions.
-
-#### Airline vs. Departure Time
-
-Since I had already found higher delay rates later in the day, I wanted to check whether airlines with more evening flights also tend to have more delays.
-
-I defined evening flights as those scheduled between **18:00 and 23:59**.
-
-Across the dataset:
+One of the most interesting patterns I found was the difference between evening and non-evening flights.
 
 |Departure period|Flights|Delay rate|
 |---|---|---|
 |Before 18:00|414,245|16.80%|
 |18:00–23:59|109,190|23.68%|
 
-Evening flights have a higher observed delay rate.
+These findings show associations, not necessarily causal relationships. Other factors, such as airport traffic, weather, and airline operations, may also influence delays.
 
-I then compared evening and non-evening flights separately for each airline.
+## Data Leakage Prevention
 
-|Airline|Before 18:00|Evening|
+Since predictions are made before departure, I excluded features that would not be available at the prediction point:
+
+- `DEP_TIME`
+    
+- `DEP_DELAY`
+    
+- `CANCELLED`
+    
+- `CANCELLATION_CODE`
+    
+- `DIVERTED`
+    
+
+I also avoided replacing missing target values with zero, as this would incorrectly label some flights as not delayed.
+
+The current model focuses on operated flights rather than predicting cancellations.
+
+## ⚙️ Data Preprocessing
+
+### Chronological Train-Validation Split
+
+Since flight data is time-dependent, I decided to split the dataset chronologically instead of using a random split.
+
+|Dataset|Period|Flights|Delay rate|
+|---|---|---|---|
+|Training|January 1–24|404,662|20.22%|
+|Validation|January 25–31|118,773|11.46%|
+
+This approach allows the model to learn from historical data and be evaluated on a later period.
+
+The difference in delay rates between the two sets is something I will consider during model evaluation.
+
+### Feature Engineering
+
+I validated the scheduled departure and arrival times and converted their HHMM representation into minutes since midnight.
+
+I then applied **Cyclical Encoding** using sine and cosine transformations with a 1,440-minute cycle.
+
+This preserves the cyclical nature of time, so that times close to midnight remain close in their numerical representation.
+
+The original time columns were replaced with four new features:
+
+- `DEP_TIME_SIN`
+    
+- `DEP_TIME_COS`
+    
+- `ARR_TIME_SIN`
+    
+- `ARR_TIME_COS`
+    
+
+### Feature Transformation
+
+After feature engineering, I divided the nine input features into three groups:
+
+|Feature group|Features|Transformation|
 |---|---|---|
-|G4|20.72%|35.37%|
-|NK|14.84%|27.08%|
-|WN|15.34%|26.63%|
-|B6|19.79%|30.52%|
-|OO|18.92%|17.81%|
+|Categorical|ORIGIN, DEST, OP_UNIQUE_CARRIER, DAY_OF_WEEK|OneHotEncoder|
+|Numerical|DISTANCE|StandardScaler|
+|Cyclical|Departure and arrival sine/cosine features|Passthrough|
 
-I found that **13 out of 14 airlines** have higher delay rates for evening flights. OO is the only exception.
+I applied One-Hot Encoding to the categorical features, generating **679 binary features**.
 
-This made me think that airline and departure hour might be useful together.
+I also standardized the distance feature using the mean and standard deviation calculated exclusively from the training set.
 
-However, the proportion of evening flights doesn't fully explain the differences between airlines. Other factors could still be involved.
+Both transformations were fitted on training data only and then applied to validation data to prevent data leakage.
 
-### 🛬 Destination Airport
+For the first model, I decided to keep the cyclical features unchanged.
 
-I also analyzed `DEST` to see whether the destination airport is associated with departure delays.
+Once combined, the preprocessing transformations are expected to produce **684 input features**.
 
-There are **329 destination airports**, with no missing values.
+## 🛠️ Technologies
 
-The destinations with the most flights are:
-
-|Destination|Flights|
-|---|---|
-|DEN|24,372|
-|DFW|23,520|
-|ATL|22,600|
-|ORD|21,220|
-|CLT|16,108|
-
-I calculated departure delay rates for each destination.
-
-The highest observed rates were:
-
-|Destination|Flights|Delay rate|
-|---|---|---|
-|CKB|9|55.56%|
-|USA|49|44.90%|
-|COD|61|37.70%|
-|PRC|61|36.07%|
-|JMS|58|34.48%|
-
-The lowest were:
-
-|Destination|Flights|Delay rate|
-|---|---|---|
-|EKO|31|0.00%|
-|OTH|18|0.00%|
-|PBG|59|5.08%|
-|LWS|93|5.38%|
-|PIH|61|6.56%|
-
-Just like in the origin airport analysis, the most extreme rates come from airports with relatively few flights.
-
-I also need to remember that `DEP_DEL15` measures departure delays, not arrival delays.
-
-For now, `DEST` is another feature I want to test during modeling.
-
-## 🛠️ Tools
-
-- **Python** — programming
+- Python
     
-- **Pandas** — data cleaning and analysis
+- Pandas
     
-- **NumPy** — numerical operations
+- NumPy
     
-- **Matplotlib** — visualizations
+- Matplotlib
     
-- **Jupyter Notebook** — experiments and documentation
+- Scikit-learn
     
-- **Scikit-learn** — planned model development
+- Jupyter Notebook
     
 
 ## 📁 Repository Structure
@@ -305,52 +153,34 @@ flight-delay-prediction/
 └── README.md
 ```
 
-The structure will change as I add preprocessing and modeling notebooks.
+## Project Progress
 
-## 🚀 Progress
+- [x] Problem definition
+- [x] Data cleaning and missing value analysis
+- [x] Exploratory Data Analysis
+- [x] Data leakage prevention
+- [x] Chronological train-validation split
+- [x] Feature selection
+- [x] Cyclical Encoding
+- [x] One-Hot Encoding
+- [x] Numerical feature scaling
+- [ ] ColumnTransformer
+- [ ] Preprocessing pipeline
+- [ ] Baseline Logistic Regression
+- [ ] Model evaluation
+- [ ] Model comparison and hyperparameter tuning
+- [ ] Final test set evaluation
+## Running the Notebook
 
-- Explore the dataset
-    
-- Investigate missing values and cancellations
-    
-- Analyze target distribution
-    
-- Identify potential data leakage
-    
-- Analyze delay rates by origin airport
-    
-- Analyze delays by scheduled departure hour
-    
-- Explore flight distance and distance categories
-    
-- Analyze delay rates by day of the week
-    
-- Compare airline delay rates
-    
-- Investigate airline and departure time patterns
-    
-- Analyze destination airports
-    
-- Complete the main EDA visualizations
-    
-- Prepare training and validation data
-    
-- Build a preprocessing pipeline
-    
-- Train a baseline model
-    
-- Compare different models
-    
-- Evaluate results and improve the model
-    
-
-## ▶️ Running the Notebook
-
-Install the packages used for the exploratory analysis:
+Install the required packages:
 
 ```
-pip install pandas numpy matplotlib jupyter
+pip install pandas numpy matplotlib scikit-learn jupyter
 ```
+
+Download the January 2025 flight data from the [BTS website](https://www.transtats.bts.gov/) and save it as `flightinfo.csv` in the project directory.
+
+The dataset is not included in the repository.
 
 Open the notebook:
 
@@ -358,14 +188,14 @@ Open the notebook:
 jupyter notebook 01_data_exploration.ipynb
 ```
 
-The notebook reads the BTS data from `flightinfo.csv`. The dataset can be obtained from the [BTS website](https://www.transtats.bts.gov/).
-
 ## What's Next?
 
-I've finished the main exploratory analysis and identified several features that might help predict departure delays.
+My next step is to combine the preprocessing transformations using ColumnTransformer and build a machine learning pipeline.
 
-Next, I want to prepare the data for machine learning, decide how to split the dataset into training and validation sets, and build a first baseline model.
+I will start with Logistic Regression as a baseline model, evaluate its performance, and then experiment with more complex models.
 
-Since flight data is time-dependent, I also want to make sure the validation approach reflects how predictions would work in practice.
+Since the dataset is imbalanced, I plan to focus on precision, recall, F1-score, and other relevant classification metrics rather than accuracy alone.
 
-I'll update this README as I train and evaluate the models.
+The current dataset covers only one month, so I would also like to evaluate the final model on an independent future period to better understand its generalization ability.
+
+This project is still in progress.
